@@ -1,0 +1,29 @@
+- name: Create download directory
+  file:
+    path: /tmp/ansible_rke2/
+    state: directory
+
+- name: Download RKE2 with check (sha256)
+  get_url:
+    url: "{{ rke2_download_url }}"
+    dest: /tmp/ansible_rke2/
+    checksum: sha256:"{{ rke2_binary_checksum }}"
+  environment:
+    http_proxy: "{{ proxy_proto }}://{{ proxy_address }}"
+    https_proxy: "{{ proxy_proto }}://{{ proxy_address }}"
+
+- name: Create extract directory
+  file:
+    path: /tmp/ansible_rke2/{{ rke2_version }}/
+    state: directory
+
+- name: Extract rke2.tar.gz
+  unarchive:
+    src: /tmp/ansible_rke2/{{ rke2_binary_name }}
+    dest: /tmp/ansible_rke2/{{ rke2_version }}/
+    remote_src: yes
+
+
+
+
+

@@ -1,0 +1,6 @@
+- hosts: cluster
+  roles:
+    - role: download
+    - role: rke2
+    - role: cleanup
+

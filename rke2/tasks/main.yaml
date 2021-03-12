@@ -1,0 +1,140 @@
+- name: Check is ufw installed
+  shell: command -v ufw >/dev/null 2>&1
+  register: is_ufw_exist
+  ignore_errors: yes
+
+- name: Disabling ufw
+  command: ufw disable
+  become: yes
+  when: is_ufw_exist.rc == 0
+
+- name: Set ip forwarding
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    sysctl_set: yes
+
+- name: Disable Swap
+  command: swapoff -a
+
+- name: Ensure swap file doesn't exist
+  file:
+    path: '/swapfile'
+    state: absent
+
+- name: Copy systemctl file for kernel hardening
+  copy:
+    src: /tmp/ansible_rke2/{{ rke2_version }}/share/rke2/rke2-cis-sysctl.conf
+    dest: /etc/sysctl.d/60-rke2-cis.conf
+    remote_src: yes
+
+- name: Restart systemd-sysctl
+  systemd:
+    state: restarted
+    name: systemd-sysctl
+
+- name: Copy rke2 file
+  copy:
+    src: /tmp/ansible_rke2/{{ rke2_version }}/bin/rke2
+    dest: /usr/local/bin/
+    mode: a+x
+    remote_src: yes
+
+- name: Add systemd rke2-server.service
+  copy:
+    src: /tmp/ansible_rke2/{{ rke2_version }}/lib/systemd/system/rke2-server.service
+    dest: /lib/systemd/system/
+    remote_src: yes
+  when: inventory_hostname in groups['master']
+
+- name: Add systemd rke2-agent.service
+  copy:
+    src: /tmp/ansible_rke2/{{ rke2_version }}/lib/systemd/system/rke2-agent.service
+    dest: /lib/systemd/system/
+    remote_src: yes
+  when: inventory_hostname in groups['worker']
+
+- name: Set rke2-server proxy
+  template:
+    src: 'rke2-server.j2'
+    dest: /etc/default/rke2-server
+    owner: 'root'
+    group: 'root'
+    mode: '0644'
+  when: inventory_hostname in groups['master']
+
+- name: Set rke2-agent proxy
+  template:
+    src: 'rke2-server.j2'
+    dest: /etc/default/rke2-agent
+    owner: 'root'
+    group: 'root'
+    mode: '0644'
+  when: inventory_hostname in groups['worker']
+
+- name: Add rke2/bin to system-wide $PATH.
+  copy:
+    dest: /etc/profile.d/custom-path.sh
+    content: |
+      export PATH=$PATH:/var/lib/rancher/rke2/bin
+      export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+    mode: '0644'
+
+- name: Create /etc/rancher/rke2 directory
+  file:
+    path: /etc/rancher/rke2/
+    state: directory
+    mode: '0644'
+
+- name: Generate a token for adding nodes
+  delegate_to: "{{ groups['master'][0] }}"
+  shell: date +%s | sha256sum | head -c 32 ; echo
+  args:
+    executable: /bin/bash
+  register: microk8s_token
+
+- name: Add rke2-server master config
+  copy:
+    dest: /etc/rancher/rke2/config.yaml
+    content: |
+      token: {{ microk8s_token.stdout }}
+      tls-san:
+        - "{{ cluster_name }}"
+    mode: '0644'
+  when: inventory_hostname == groups['master'][0]
+
+- name: Add rke2-server config
+  copy:
+    dest: /etc/rancher/rke2/config.yaml
+    content: |
+      server: https://{{ hostvars[groups['master'][0]]['ansible_host'] }}:9345
+      token: {{ microk8s_token.stdout }}
+      tls-san:
+        - "{{ cluster_name }}"
+    mode: '0644'
+  when: inventory_hostname in groups['master'] and inventory_hostname != groups['master'][0] 
+
+- name: Add rke2-agent config
+  copy:
+    dest: /etc/rancher/rke2/config.yaml
+    content: |
+      server: https://{{ hostvars[groups['master'][0]]['ansible_host'] }}:9345
+      token: {{ microk8s_token.stdout }}
+    mode: '0644'
+  when: inventory_hostname in groups['worker']
+
+- name: Enable systemd rke2-server.service
+  systemd:
+    name: rke2-server.service
+    daemon_reload: yes
+    enabled: yes
+    state: restarted
+  when: inventory_hostname in groups['master']
+
+- name: Enable systemd rke2-agent.service
+  systemd:
+    name: rke2-agent.service
+    daemon_reload: yes
+    enabled: yes
+    state: restarted
+  when: inventory_hostname in groups['worker']

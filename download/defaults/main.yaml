@@ -1,0 +1,14 @@
+---
+rke2_checksums:
+  amd64:
+    v1.19.8+rke2r1: 08c041cf9bde36bd9c35eec23c3b41a915002d5dc44f6670aef8d7443c1b4151
+
+
+
+rke2_binary_name: rke2.linux-{{ rke2_arch }}.tar.gz
+rke2_binary_checksum: "{{ rke2_checksums[rke2_arch][rke2_version] }}"
+
+
+
+# https://github.com/rancher/rke2/releases/download/v1.19.8%2Brke2r1/rke2.linux-amd64.tar.gz
+rke2_download_url: https://github.com/rancher/rke2/releases/download/{{ rke2_version }}/{{ rke2_binary_name }}
